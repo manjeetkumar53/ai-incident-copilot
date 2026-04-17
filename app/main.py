@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 
 from app.models import (
     ApprovalRequest,
@@ -18,6 +18,7 @@ from app.models import (
     TimelineEvent,
 )
 from app.services.planner import create_plan
+from app.services.authz import require_role
 from app.services.store import store
 
 app = FastAPI(title="AI Incident Copilot", version="0.1.0")
@@ -50,70 +51,74 @@ def ingest_incident(payload: IncidentIngestRequest) -> IngestResponse:
 
 @app.post("/v1/incidents/{incident_id}/plan", response_model=PlanResponse)
 def plan_incident(incident_id: str) -> PlanResponse:
-    incident = store.incidents.get(incident_id)
+    incident = store.get_incident(incident_id)
     if not incident:
         raise HTTPException(status_code=404, detail="Incident not found")
 
     plan = create_plan(incident)
     store.add_plan(incident_id, plan)
-    incident.status = IncidentStatus.planned
+    store.update_incident_status(incident_id, IncidentStatus.planned.value)
     store.add_timeline_event(
         incident_id,
         TimelineEvent(event="plan.generated", actor="copilot", detail=f"Runbook={plan.runbook_id}"),
     )
-    return PlanResponse(status=incident.status, plan=plan)
+    return PlanResponse(status=IncidentStatus.planned, plan=plan)
 
 
 @app.post("/v1/incidents/{incident_id}/approve", response_model=ApprovalResponse)
-def approve_plan(incident_id: str, payload: ApprovalRequest) -> ApprovalResponse:
-    incident = store.incidents.get(incident_id)
+def approve_plan(incident_id: str, payload: ApprovalRequest, request: Request) -> ApprovalResponse:
+    require_role(request, {"incident_commander", "engineering_manager"})
+
+    incident = store.get_incident(incident_id)
     if not incident:
         raise HTTPException(status_code=404, detail="Incident not found")
-    if incident_id not in store.plans:
+    if store.get_plan(incident_id) is None:
         raise HTTPException(status_code=409, detail="Plan must be generated before approval")
 
-    incident.status = IncidentStatus.approved
+    store.update_incident_status(incident_id, IncidentStatus.approved.value)
     note = payload.comment or "No comment"
     store.add_timeline_event(
         incident_id,
         TimelineEvent(event="plan.approved", actor=payload.approved_by, detail=note),
     )
-    return ApprovalResponse(status=incident.status, approved_by=payload.approved_by)
+    return ApprovalResponse(status=IncidentStatus.approved, approved_by=payload.approved_by)
 
 
 @app.post("/v1/incidents/{incident_id}/execute", response_model=ExecuteResponse)
-def execute_plan(incident_id: str, payload: ExecuteRequest) -> ExecuteResponse:
-    incident = store.incidents.get(incident_id)
+def execute_plan(incident_id: str, payload: ExecuteRequest, request: Request) -> ExecuteResponse:
+    require_role(request, {"incident_commander", "sre_oncall"})
+
+    incident = store.get_incident(incident_id)
     if not incident:
         raise HTTPException(status_code=404, detail="Incident not found")
     if incident.status != IncidentStatus.approved:
         raise HTTPException(status_code=409, detail="Execution requires approved status")
 
-    incident.status = IncidentStatus.executing
+    store.update_incident_status(incident_id, IncidentStatus.executing.value)
     store.add_timeline_event(
         incident_id,
         TimelineEvent(event="execution.started", actor=payload.executed_by, detail="Running approved steps"),
     )
 
-    incident.status = IncidentStatus.mitigated
+    store.update_incident_status(incident_id, IncidentStatus.mitigated.value)
     store.add_timeline_event(
         incident_id,
         TimelineEvent(event="incident.mitigated", actor=payload.executed_by, detail="Mitigation marked complete"),
     )
     return ExecuteResponse(
-        status=incident.status,
+        status=IncidentStatus.mitigated,
         summary="Approved mitigation workflow executed and incident marked as mitigated.",
     )
 
 
 @app.get("/v1/incidents/{incident_id}", response_model=IncidentDetailResponse)
 def get_incident_detail(incident_id: str) -> IncidentDetailResponse:
-    incident = store.incidents.get(incident_id)
+    incident = store.get_incident(incident_id)
     if not incident:
         raise HTTPException(status_code=404, detail="Incident not found")
 
     return IncidentDetailResponse(
         incident=incident,
-        plan=store.plans.get(incident_id),
-        timeline=store.timeline.get(incident_id, []),
+        plan=store.get_plan(incident_id),
+        timeline=store.get_timeline(incident_id),
     )

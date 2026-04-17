@@ -29,6 +29,7 @@ def test_happy_path_incident_flow() -> None:
     approve = client.post(
         f"/v1/incidents/{incident_id}/approve",
         json={"approved_by": "incident-commander", "comment": "Proceed with rollback"},
+        headers={"X-Role": "incident_commander"},
     )
     assert approve.status_code == 200
     assert approve.json()["status"] == "approved"
@@ -36,6 +37,7 @@ def test_happy_path_incident_flow() -> None:
     execute = client.post(
         f"/v1/incidents/{incident_id}/execute",
         json={"executed_by": "sre-oncall"},
+        headers={"X-Role": "sre_oncall"},
     )
     assert execute.status_code == 200
     assert execute.json()["status"] == "mitigated"
@@ -67,6 +69,7 @@ def test_execute_without_approval_fails() -> None:
     execute = client.post(
         f"/v1/incidents/{incident_id}/execute",
         json={"executed_by": "sre-oncall"},
+        headers={"X-Role": "sre_oncall"},
     )
     assert execute.status_code == 409
     assert "approved" in execute.json()["detail"]
@@ -90,8 +93,33 @@ def test_approve_without_plan_fails() -> None:
     approve = client.post(
         f"/v1/incidents/{incident_id}/approve",
         json={"approved_by": "ic"},
+        headers={"X-Role": "incident_commander"},
     )
     assert approve.status_code == 409
+
+
+def test_approve_with_forbidden_role_fails() -> None:
+    reset_store()
+
+    ingest = client.post(
+        "/v1/incidents/ingest",
+        json={
+            "title": "Checkout DB pressure",
+            "service": "checkout-db",
+            "severity": "high",
+            "source": "pagerduty",
+            "summary": "CPU saturation reached 95%",
+        },
+    )
+    incident_id = ingest.json()["incident_id"]
+    client.post(f"/v1/incidents/{incident_id}/plan")
+
+    approve = client.post(
+        f"/v1/incidents/{incident_id}/approve",
+        json={"approved_by": "developer"},
+        headers={"X-Role": "developer"},
+    )
+    assert approve.status_code == 403
 
 
 def test_incident_not_found_returns_404() -> None:
