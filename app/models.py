@@ -34,6 +34,14 @@ class IncidentIngestRequest(BaseModel):
     summary: str = Field(min_length=5, max_length=2000)
 
 
+class IntegrationIngestRequest(BaseModel):
+    title: str = Field(min_length=4, max_length=200)
+    service: str = Field(min_length=2, max_length=100)
+    severity: Severity
+    summary: str = Field(min_length=5, max_length=2000)
+    external_id: str | None = Field(default=None, max_length=120)
+
+
 class PlanStep(BaseModel):
     id: str
     description: str
@@ -65,18 +73,34 @@ class IncidentRecord(BaseModel):
     source: str
     summary: str
     status: IncidentStatus
+    created_at: str | None = None
+    updated_at: str | None = None
 
 
 class TimelineEvent(BaseModel):
     event: str
     actor: str
     detail: str
+    created_at: str | None = None
 
 
 class IncidentDetailResponse(BaseModel):
     incident: IncidentRecord
     plan: IncidentPlan | None
     timeline: list[TimelineEvent]
+
+
+class IncidentListResponse(BaseModel):
+    items: list[IncidentRecord]
+    total: int
+
+
+class MetricsSummaryResponse(BaseModel):
+    total_incidents: int
+    by_status: dict[str, int]
+    by_severity: dict[str, int]
+    approved_incidents: int
+    mitigated_incidents: int
 
 
 class IngestResponse(BaseModel):

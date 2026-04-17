@@ -11,14 +11,18 @@ from app.models import (
     ExecuteResponse,
     IncidentDetailResponse,
     IncidentIngestRequest,
+    IncidentListResponse,
     IncidentRecord,
     IncidentStatus,
+    IntegrationIngestRequest,
     IngestResponse,
+    MetricsSummaryResponse,
     PlanResponse,
     TimelineEvent,
 )
 from app.services.planner import create_plan
 from app.services.authz import require_role
+from app.services.policy import check_execution_policy
 from app.services.store import store
 
 app = FastAPI(title="AI Incident Copilot", version="0.1.0")
@@ -45,6 +49,31 @@ def ingest_incident(payload: IncidentIngestRequest) -> IngestResponse:
     store.add_timeline_event(
         incident_id,
         TimelineEvent(event="incident.ingested", actor="system", detail=f"Source={payload.source}"),
+    )
+    return IngestResponse(incident_id=incident_id, status=record.status)
+
+
+@app.post("/v1/integrations/{source}/ingest", response_model=IngestResponse, status_code=201)
+def ingest_from_integration(source: str, payload: IntegrationIngestRequest) -> IngestResponse:
+    source = source.strip().lower()
+    if source not in {"pagerduty", "slack", "webhook"}:
+        raise HTTPException(status_code=400, detail="Unsupported integration source")
+
+    incident_id = str(uuid.uuid4())
+    record = IncidentRecord(
+        id=incident_id,
+        title=payload.title,
+        service=payload.service,
+        severity=payload.severity,
+        source=source,
+        summary=payload.summary,
+        status=IncidentStatus.open,
+    )
+    store.add_incident(record)
+    detail = f"Source={source} external_id={payload.external_id or 'n/a'}"
+    store.add_timeline_event(
+        incident_id,
+        TimelineEvent(event="incident.ingested", actor="integration", detail=detail),
     )
     return IngestResponse(incident_id=incident_id, status=record.status)
 
@@ -86,13 +115,18 @@ def approve_plan(incident_id: str, payload: ApprovalRequest, request: Request) -
 
 @app.post("/v1/incidents/{incident_id}/execute", response_model=ExecuteResponse)
 def execute_plan(incident_id: str, payload: ExecuteRequest, request: Request) -> ExecuteResponse:
-    require_role(request, {"incident_commander", "sre_oncall"})
+    role = require_role(request, {"incident_commander", "sre_oncall"})
 
     incident = store.get_incident(incident_id)
     if not incident:
         raise HTTPException(status_code=404, detail="Incident not found")
     if incident.status != IncidentStatus.approved:
         raise HTTPException(status_code=409, detail="Execution requires approved status")
+
+    plan = store.get_plan(incident_id)
+    allowed, reason = check_execution_policy(incident, role, plan)
+    if not allowed:
+        raise HTTPException(status_code=403, detail=reason)
 
     store.update_incident_status(incident_id, IncidentStatus.executing.value)
     store.add_timeline_event(
@@ -122,3 +156,24 @@ def get_incident_detail(incident_id: str) -> IncidentDetailResponse:
         plan=store.get_plan(incident_id),
         timeline=store.get_timeline(incident_id),
     )
+
+
+@app.get("/v1/incidents", response_model=IncidentListResponse)
+def list_incidents(
+    status: IncidentStatus | None = None,
+    severity: str | None = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> IncidentListResponse:
+    items, total = store.list_incidents(
+        status=status.value if status else None,
+        severity=severity,
+        limit=limit,
+        offset=offset,
+    )
+    return IncidentListResponse(items=items, total=total)
+
+
+@app.get("/v1/metrics/summary", response_model=MetricsSummaryResponse)
+def metrics_summary() -> MetricsSummaryResponse:
+    return MetricsSummaryResponse(**store.metrics_summary())

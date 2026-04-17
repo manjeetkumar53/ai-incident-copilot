@@ -36,8 +36,8 @@ def test_happy_path_incident_flow() -> None:
 
     execute = client.post(
         f"/v1/incidents/{incident_id}/execute",
-        json={"executed_by": "sre-oncall"},
-        headers={"X-Role": "sre_oncall"},
+        json={"executed_by": "incident-commander"},
+        headers={"X-Role": "incident_commander"},
     )
     assert execute.status_code == 200
     assert execute.json()["status"] == "mitigated"
@@ -120,6 +120,66 @@ def test_approve_with_forbidden_role_fails() -> None:
         headers={"X-Role": "developer"},
     )
     assert approve.status_code == 403
+
+
+def test_critical_execute_by_sre_oncall_blocked_by_policy() -> None:
+    reset_store()
+
+    ingest = client.post(
+        "/v1/incidents/ingest",
+        json={
+            "title": "Critical checkout outage",
+            "service": "checkout-api",
+            "severity": "critical",
+            "source": "pagerduty",
+            "summary": "Error rate 100% for checkout requests",
+        },
+    )
+    incident_id = ingest.json()["incident_id"]
+    client.post(f"/v1/incidents/{incident_id}/plan")
+    client.post(
+        f"/v1/incidents/{incident_id}/approve",
+        json={"approved_by": "ic"},
+        headers={"X-Role": "incident_commander"},
+    )
+
+    execute = client.post(
+        f"/v1/incidents/{incident_id}/execute",
+        json={"executed_by": "sre-oncall"},
+        headers={"X-Role": "sre_oncall"},
+    )
+    assert execute.status_code == 403
+    assert "Critical incidents require incident_commander" in execute.json()["detail"]
+
+
+def test_integration_ingest_list_and_metrics() -> None:
+    reset_store()
+
+    ingest = client.post(
+        "/v1/integrations/slack/ingest",
+        json={
+            "title": "Search latency warning",
+            "service": "search-api",
+            "severity": "medium",
+            "summary": "P95 latency above threshold for 10 min",
+            "external_id": "SLACK-123",
+        },
+    )
+    assert ingest.status_code == 201
+    incident_id = ingest.json()["incident_id"]
+
+    listing = client.get("/v1/incidents?limit=10&offset=0")
+    assert listing.status_code == 200
+    payload = listing.json()
+    assert payload["total"] >= 1
+    assert any(item["id"] == incident_id for item in payload["items"])
+
+    metrics = client.get("/v1/metrics/summary")
+    assert metrics.status_code == 200
+    mp = metrics.json()
+    assert mp["total_incidents"] >= 1
+    assert "by_status" in mp
+    assert "by_severity" in mp
 
 
 def test_incident_not_found_returns_404() -> None:

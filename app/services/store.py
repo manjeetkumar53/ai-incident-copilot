@@ -27,7 +27,9 @@ class SQLiteStore:
                     severity TEXT NOT NULL,
                     source TEXT NOT NULL,
                     summary TEXT NOT NULL,
-                    status TEXT NOT NULL
+                    status TEXT NOT NULL,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
                 )
                 """
             )
@@ -43,6 +45,15 @@ class SQLiteStore:
                 )
                 """
             )
+            # Best-effort schema evolution for already-created local DBs.
+            try:
+                conn.execute("ALTER TABLE incidents ADD COLUMN created_at DATETIME DEFAULT CURRENT_TIMESTAMP")
+            except sqlite3.OperationalError:
+                pass
+            try:
+                conn.execute("ALTER TABLE incidents ADD COLUMN updated_at DATETIME DEFAULT CURRENT_TIMESTAMP")
+            except sqlite3.OperationalError:
+                pass
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS timeline_events (
@@ -105,7 +116,7 @@ class SQLiteStore:
         with self._connect() as conn:
             row = conn.execute(
                 """
-                SELECT id, title, service, severity, source, summary, status
+                SELECT id, title, service, severity, source, summary, status, created_at, updated_at
                 FROM incidents WHERE id = ?
                 """,
                 (incident_id,),
@@ -120,11 +131,16 @@ class SQLiteStore:
             source=row[4],
             summary=row[5],
             status=row[6],
+            created_at=row[7],
+            updated_at=row[8],
         )
 
     def update_incident_status(self, incident_id: str, status: str) -> None:
         with self._connect() as conn:
-            conn.execute("UPDATE incidents SET status = ? WHERE id = ?", (status, incident_id))
+            conn.execute(
+                "UPDATE incidents SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                (status, incident_id),
+            )
 
     def get_plan(self, incident_id: str) -> IncidentPlan | None:
         with self._connect() as conn:
@@ -150,14 +166,85 @@ class SQLiteStore:
         with self._connect() as conn:
             rows = conn.execute(
                 """
-                SELECT event, actor, detail
+                SELECT event, actor, detail, created_at
                 FROM timeline_events
                 WHERE incident_id = ?
                 ORDER BY id ASC
                 """,
                 (incident_id,),
             ).fetchall()
-        return [TimelineEvent(event=r[0], actor=r[1], detail=r[2]) for r in rows]
+        return [TimelineEvent(event=r[0], actor=r[1], detail=r[2], created_at=r[3]) for r in rows]
+
+    def list_incidents(
+        self,
+        *,
+        status: str | None = None,
+        severity: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> tuple[list[IncidentRecord], int]:
+        conditions: list[str] = []
+        params: list[object] = []
+        if status:
+            conditions.append("status = ?")
+            params.append(status)
+        if severity:
+            conditions.append("severity = ?")
+            params.append(severity)
+
+        where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+        with self._connect() as conn:
+            count_row = conn.execute(
+                f"SELECT COUNT(*) FROM incidents {where}",
+                params,
+            ).fetchone()
+            rows = conn.execute(
+                f"""
+                SELECT id, title, service, severity, source, summary, status, created_at, updated_at
+                FROM incidents
+                {where}
+                ORDER BY created_at DESC
+                LIMIT ? OFFSET ?
+                """,
+                params + [limit, offset],
+            ).fetchall()
+
+        items = [
+            IncidentRecord(
+                id=r[0],
+                title=r[1],
+                service=r[2],
+                severity=r[3],
+                source=r[4],
+                summary=r[5],
+                status=r[6],
+                created_at=r[7],
+                updated_at=r[8],
+            )
+            for r in rows
+        ]
+        total = int(count_row[0]) if count_row else 0
+        return items, total
+
+    def metrics_summary(self) -> dict:
+        with self._connect() as conn:
+            total = int(conn.execute("SELECT COUNT(*) FROM incidents").fetchone()[0])
+            by_status_rows = conn.execute(
+                "SELECT status, COUNT(*) FROM incidents GROUP BY status"
+            ).fetchall()
+            by_severity_rows = conn.execute(
+                "SELECT severity, COUNT(*) FROM incidents GROUP BY severity"
+            ).fetchall()
+
+        by_status = {str(k): int(v) for k, v in by_status_rows}
+        by_severity = {str(k): int(v) for k, v in by_severity_rows}
+        return {
+            "total_incidents": total,
+            "by_status": by_status,
+            "by_severity": by_severity,
+            "approved_incidents": by_status.get("approved", 0),
+            "mitigated_incidents": by_status.get("mitigated", 0),
+        }
 
     def clear_all(self) -> None:
         with self._connect() as conn:
