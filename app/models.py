@@ -90,6 +90,14 @@ class IncidentDetailResponse(BaseModel):
     timeline: list[TimelineEvent]
 
 
+class AuditReportResponse(BaseModel):
+    incident: IncidentRecord
+    plan: IncidentPlan | None
+    timeline: list[TimelineEvent]
+    controls: list[str]
+    markdown_report: str
+
+
 class IncidentListResponse(BaseModel):
     items: list[IncidentRecord]
     total: int

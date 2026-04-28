@@ -48,6 +48,14 @@ def test_happy_path_incident_flow() -> None:
     assert len(timeline) >= 4
     assert timeline[-1]["event"] == "incident.mitigated"
 
+    audit = client.get(f"/v1/incidents/{incident_id}/audit-report")
+    assert audit.status_code == 200
+    audit_payload = audit.json()
+    assert audit_payload["incident"]["id"] == incident_id
+    assert "Execution endpoint protected" in " ".join(audit_payload["controls"])
+    assert "Incident Audit Report" in audit_payload["markdown_report"]
+    assert "incident.mitigated" in audit_payload["markdown_report"]
+
 
 def test_execute_without_approval_fails() -> None:
     reset_store()
@@ -190,3 +198,6 @@ def test_incident_not_found_returns_404() -> None:
 
     detail = client.get("/v1/incidents/missing")
     assert detail.status_code == 404
+
+    audit = client.get("/v1/incidents/missing/audit-report")
+    assert audit.status_code == 404

@@ -1,0 +1,67 @@
+<svg width="1120" height="540" viewBox="0 0 1120 540" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">AI Incident Copilot control loop</title>
+  <desc id="desc">Incident ingest, planning, approval, execution policy, mitigation, audit report, and metrics flow.</desc>
+  <rect width="1120" height="540" rx="0" fill="#0F172A"/>
+  <rect x="42" y="42" width="1036" height="456" rx="18" fill="#111827" stroke="#334155" stroke-width="2"/>
+  <text x="72" y="92" fill="#F8FAFC" font-family="Arial, sans-serif" font-size="30" font-weight="700">AI Incident Copilot</text>
+  <text x="72" y="122" fill="#CBD5E1" font-family="Arial, sans-serif" font-size="16">Approval-gated incident automation with role checks, execution policy, audit trail, and metrics.</text>
+
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L9,3 z" fill="#38BDF8"/>
+    </marker>
+    <style>
+      .box { fill: #1E293B; stroke: #475569; stroke-width: 1.5; }
+      .gate { fill: #26364F; stroke: #38BDF8; stroke-width: 1.5; }
+      .label { fill: #F8FAFC; font: 700 16px Arial, sans-serif; }
+      .small { fill: #CBD5E1; font: 13px Arial, sans-serif; }
+      .muted { fill: #94A3B8; font: 12px Arial, sans-serif; }
+      .line { stroke: #38BDF8; stroke-width: 2.5; marker-end: url(#arrow); }
+    </style>
+  </defs>
+
+  <rect class="box" x="72" y="178" width="150" height="90" rx="10"/>
+  <text class="label" x="100" y="214">Alert Ingest</text>
+  <text class="small" x="93" y="240">PagerDuty</text>
+  <text class="small" x="93" y="260">Slack / Webhook</text>
+
+  <line class="line" x1="222" y1="223" x2="276" y2="223"/>
+
+  <rect class="box" x="290" y="178" width="150" height="90" rx="10"/>
+  <text class="label" x="322" y="214">Plan</text>
+  <text class="small" x="318" y="240">Runbook match</text>
+  <text class="small" x="318" y="260">Safe steps</text>
+
+  <line class="line" x1="440" y1="223" x2="494" y2="223"/>
+
+  <rect class="gate" x="508" y="178" width="150" height="90" rx="10"/>
+  <text class="label" x="541" y="214">Approve</text>
+  <text class="small" x="536" y="240">RBAC header</text>
+  <text class="small" x="536" y="260">IC / manager</text>
+
+  <line class="line" x1="658" y1="223" x2="712" y2="223"/>
+
+  <rect class="gate" x="726" y="178" width="150" height="90" rx="10"/>
+  <text class="label" x="759" y="214">Execute</text>
+  <text class="small" x="751" y="240">Role policy</text>
+  <text class="small" x="751" y="260">Severity gate</text>
+
+  <line class="line" x1="876" y1="223" x2="930" y2="223"/>
+
+  <rect class="box" x="944" y="178" width="92" height="90" rx="10"/>
+  <text class="label" x="966" y="214">Close</text>
+  <text class="small" x="964" y="240">Mitigated</text>
+  <text class="small" x="964" y="260">State</text>
+
+  <rect x="72" y="328" width="964" height="112" rx="12" fill="#172033" stroke="#334155" stroke-width="1.5"/>
+  <text class="label" x="102" y="366">Operational evidence</text>
+  <text class="small" x="102" y="396">Timeline events are persisted for every state transition and rendered into an audit report.</text>
+  <text class="small" x="102" y="420">Metrics summarize incidents by status, severity, approval, and mitigation outcome.</text>
+
+  <rect x="742" y="354" width="118" height="52" rx="8" fill="#0F766E"/>
+  <text class="small" x="766" y="385" fill="#ECFEFF">Audit Report</text>
+  <rect x="884" y="354" width="118" height="52" rx="8" fill="#7C3AED"/>
+  <text class="small" x="912" y="385" fill="#F5F3FF">Metrics</text>
+
+  <text class="muted" x="72" y="476">FastAPI + SQLite + Pydantic + pytest</text>
+</svg>

@@ -7,6 +7,7 @@ from fastapi import FastAPI, HTTPException, Request
 from app.models import (
     ApprovalRequest,
     ApprovalResponse,
+    AuditReportResponse,
     ExecuteRequest,
     ExecuteResponse,
     IncidentDetailResponse,
@@ -23,6 +24,7 @@ from app.models import (
 from app.services.planner import create_plan
 from app.services.authz import require_role
 from app.services.policy import check_execution_policy
+from app.services.reporting import build_audit_report
 from app.services.store import store
 
 app = FastAPI(title="AI Incident Copilot", version="0.1.0")
@@ -155,6 +157,24 @@ def get_incident_detail(incident_id: str) -> IncidentDetailResponse:
         incident=incident,
         plan=store.get_plan(incident_id),
         timeline=store.get_timeline(incident_id),
+    )
+
+
+@app.get("/v1/incidents/{incident_id}/audit-report", response_model=AuditReportResponse)
+def get_incident_audit_report(incident_id: str) -> AuditReportResponse:
+    incident = store.get_incident(incident_id)
+    if not incident:
+        raise HTTPException(status_code=404, detail="Incident not found")
+
+    plan = store.get_plan(incident_id)
+    timeline = store.get_timeline(incident_id)
+    controls, markdown_report = build_audit_report(incident, plan, timeline)
+    return AuditReportResponse(
+        incident=incident,
+        plan=plan,
+        timeline=timeline,
+        controls=controls,
+        markdown_report=markdown_report,
     )
 
 

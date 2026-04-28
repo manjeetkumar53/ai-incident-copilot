@@ -1,5 +1,9 @@
 # AI Incident Copilot
 
+![Python](https://img.shields.io/badge/Python-3.13-3776AB?style=flat-square&logo=python&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-0.116-009688?style=flat-square&logo=fastapi&logoColor=white)
+![Tests](https://img.shields.io/badge/Tests-pytest-2ea44f?style=flat-square&logo=pytest&logoColor=white)
+
 AI Incident Copilot is an API-first incident response system that supports the full operational loop:
 
 1. ingest alerts from external channels
@@ -10,17 +14,34 @@ AI Incident Copilot is an API-first incident response system that supports the f
 
 This repository is built as a production-oriented MVP with explicit safety controls and deterministic workflow behavior.
 
+![Incident control loop](assets/demo/incident-control-loop.svg)
+
+## Why this exists
+
+Operational AI tools are risky if they can jump directly from alert to action. This project shows the safer pattern: generate a mitigation plan, require human approval, enforce role and severity policy at execution time, then retain evidence for audit and metrics.
+
 ## Production-oriented capabilities
 
 - Incident lifecycle state machine: `open -> planned -> approved -> executing -> mitigated`
 - SQLite-backed persistence for incidents, plans, and timeline events
 - Role-based access control on sensitive endpoints
 - Execution policy checks for high-risk scenarios
+- Audit report endpoint for reviewer-ready incident evidence
 - Integration ingest endpoint for PagerDuty/Slack/Webhook-style alerts
 - Incident listing with filtering and pagination
 - Metrics summary endpoint for operational reporting
 - Typed request/response contracts via Pydantic models
 - Automated tests for safety, policy, and workflow correctness
+
+## At a glance
+
+| Concern | Implementation |
+|---|---|
+| Workflow control | Explicit state machine with blocked approval/execution paths |
+| Human approval | Role-gated approval before any write action can execute |
+| Safety policy | Critical incidents require `incident_commander` execution |
+| Auditability | Timeline events and Markdown audit report per incident |
+| Operations | Summary metrics by status and severity |
 
 ## Architecture
 
@@ -162,6 +183,12 @@ Request:
 
 - `GET /v1/incidents/{incident_id}`
 
+### Audit report
+
+- `GET /v1/incidents/{incident_id}/audit-report`
+
+Returns the incident, plan, timeline, enforced controls, and a Markdown report suitable for review handoff.
+
 ### Incident list
 
 - `GET /v1/incidents?status=<status>&severity=<severity>&limit=<n>&offset=<n>`
@@ -252,11 +279,14 @@ Current suite validates:
 - critical execution policy enforcement
 - integration ingest endpoint behavior
 - incident list and metrics summary responses
+- audit report generation
 
 Run only workflow tests:
 
 ```bash
 pytest -q tests/test_incident_flow.py
+```
+
 ## Repository structure
 
 ```text
@@ -268,7 +298,11 @@ ai-incident-copilot/
 │       ├── authz.py
 │       ├── planner.py
 │       ├── policy.py
+│       ├── reporting.py
 │       └── store.py
+├── assets/
+│   └── demo/
+│       └── incident-control-loop.svg
 ├── tests/
 │   ├── conftest.py
 │   ├── test_health.py
