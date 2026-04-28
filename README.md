@@ -3,227 +3,74 @@
 ![Python](https://img.shields.io/badge/Python-3.13-3776AB?style=flat-square&logo=python&logoColor=white)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.116-009688?style=flat-square&logo=fastapi&logoColor=white)
 ![Tests](https://img.shields.io/badge/Tests-pytest-2ea44f?style=flat-square&logo=pytest&logoColor=white)
+![Focus](https://img.shields.io/badge/Focus-AI%20Ops%20Controls-b45309?style=flat-square)
 
-AI Incident Copilot is an API-first incident response system that supports the full operational loop:
+An API-first incident response copilot that turns alerts into controlled mitigation workflows: ingest an incident, generate a plan, require human approval, enforce role and severity policy, execute approved actions, and retain an auditable timeline.
 
-1. ingest alerts from external channels
-2. generate mitigation plans
-3. enforce human approval and role checks
-4. execute approved actions under policy constraints
-5. retain an auditable timeline and operational metrics
-
-This repository is built as a production-oriented MVP with explicit safety controls and deterministic workflow behavior.
+The project is intentionally built around **control before automation**.
 
 ![Incident control loop](assets/demo/incident-control-loop.svg)
 
-## Why this exists
+## Why This Repo Matters
 
-Operational AI tools are risky if they can jump directly from alert to action. This project shows the safer pattern: generate a mitigation plan, require human approval, enforce role and severity policy at execution time, then retain evidence for audit and metrics.
+Operational AI tools are useful only when they are safe to run under pressure. A copilot that can jump directly from alert to action is risky. This repo shows the safer pattern: plan, approve, execute under policy, and preserve evidence for review.
 
-## Production-oriented capabilities
+It demonstrates:
 
-- Incident lifecycle state machine: `open -> planned -> approved -> executing -> mitigated`
-- SQLite-backed persistence for incidents, plans, and timeline events
-- Role-based access control on sensitive endpoints
-- Execution policy checks for high-risk scenarios
-- Audit report endpoint for reviewer-ready incident evidence
-- Integration ingest endpoint for PagerDuty/Slack/Webhook-style alerts
-- Incident listing with filtering and pagination
-- Metrics summary endpoint for operational reporting
-- Typed request/response contracts via Pydantic models
-- Automated tests for safety, policy, and workflow correctness
+- incident lifecycle state machine
+- integration-style alert ingest
+- deterministic mitigation plan generation
+- role-based approval and execution gates
+- severity-aware execution policy
+- immutable-style timeline events
+- audit report generation
+- metrics endpoints for operational reporting
+- focused tests for safety and workflow correctness
 
-## At a glance
+## At a Glance
 
 | Concern | Implementation |
 |---|---|
-| Workflow control | Explicit state machine with blocked approval/execution paths |
-| Human approval | Role-gated approval before any write action can execute |
-| Safety policy | Critical incidents require `incident_commander` execution |
-| Auditability | Timeline events and Markdown audit report per incident |
-| Operations | Summary metrics by status and severity |
+| Workflow control | `open -> planned -> approved -> executing -> mitigated` |
+| Human approval | Approval endpoint requires incident commander or engineering manager role |
+| Execution safety | Critical incidents require `incident_commander` execution |
+| Auditability | Timeline events plus Markdown audit report per incident |
+| Integrations | PagerDuty, Slack, and webhook-style ingest surface |
+| Operations | Incident listing, filters, pagination, and summary metrics |
 
 ## Architecture
 
 ```text
-External Alert Source (PagerDuty / Slack / Webhook)
-                    |
-                    v
-      POST /v1/integrations/{source}/ingest
-                    |
-                    v
-             Incident Store (SQLite)
-                    |
-                    +--> POST /v1/incidents/{id}/plan
-                    |         |
-                    |         v
-                    |   Planner Service
-                    |
-                    +--> POST /v1/incidents/{id}/approve
-                    |         |
-                    |         v
-                    |   RBAC (incident_commander, engineering_manager)
-                    |
-                    +--> POST /v1/incidents/{id}/execute
-                              |
-                              v
-                     RBAC + Execution Policy
-                    |
-                    v
-             Timeline + Metrics Summary
+External alert source
+  -> POST /v1/integrations/{source}/ingest
+  -> SQLite incident store
+  -> POST /v1/incidents/{id}/plan
+  -> Planner service
+  -> POST /v1/incidents/{id}/approve
+  -> RBAC check
+  -> POST /v1/incidents/{id}/execute
+  -> RBAC + severity policy
+  -> timeline + audit report + metrics
 ```
 
-## Security and control model
-
-### RBAC headers
-
-Sensitive endpoints require `X-Role`:
-
-- `POST /v1/incidents/{id}/approve`: `incident_commander` or `engineering_manager`
-- `POST /v1/incidents/{id}/execute`: `incident_commander` or `sre_oncall`
-
-If missing or invalid, API returns `403`.
-
-### Execution policy
-
-Additional policy checks run during execution:
-
-- Critical incidents can only be executed by `incident_commander`
-- Execution is blocked if no plan exists
-- Execution is blocked if plan has no actionable `write_action` step
-
-## Data model
-
-### Incident
-
-- `id`
-- `title`
-- `service`
-- `severity`: `critical | high | medium | low`
-- `source`: `pagerduty | slack | webhook`
-- `summary`
-- `status`
-- `created_at`, `updated_at`
-
-### Plan
-
-- `incident_id`
-- `runbook_id`
-- `confidence`
-- `rationale`
-- `steps[]` with `read_only` / `write_action`
-
-### Timeline event
-
-- `event`
-- `actor`
-- `detail`
-- `created_at`
-
-## API reference
-
-### Health
-
-- `GET /health`
-
-Returns:
-
-```json
-{"status": "ok"}
-```
-
-### Ingest incident (direct)
-
-- `POST /v1/incidents/ingest`
-
-Request:
-
-```json
-{
-  "title": "Checkout error spike",
-  "service": "checkout-api",
-  "severity": "critical",
-  "source": "pagerduty",
-  "summary": "5xx errors crossed SLO threshold"
-}
-```
-
-### Ingest incident (integration)
-
-- `POST /v1/integrations/{source}/ingest`
-- Supported `{source}`: `pagerduty`, `slack`, `webhook`
-
-Request:
-
-```json
-{
-  "title": "Search latency warning",
-  "service": "search-api",
-  "severity": "medium",
-  "summary": "P95 latency above threshold for 10 minutes",
-  "external_id": "ALERT-123"
-}
-```
-
-### Generate plan
-
-- `POST /v1/incidents/{incident_id}/plan`
-
-### Approve plan (RBAC)
-
-- `POST /v1/incidents/{incident_id}/approve`
-- Required header: `X-Role: incident_commander` or `X-Role: engineering_manager`
-
-### Execute plan (RBAC + policy)
-
-- `POST /v1/incidents/{incident_id}/execute`
-- Required header: `X-Role: incident_commander` or `X-Role: sre_oncall`
-
-### Incident detail
-
-- `GET /v1/incidents/{incident_id}`
-
-### Audit report
-
-- `GET /v1/incidents/{incident_id}/audit-report`
-
-Returns the incident, plan, timeline, enforced controls, and a Markdown report suitable for review handoff.
-
-### Incident list
-
-- `GET /v1/incidents?status=<status>&severity=<severity>&limit=<n>&offset=<n>`
-
-### Metrics summary
-
-- `GET /v1/metrics/summary`
-
-Response:
-
-```json
-{
-  "total_incidents": 12,
-  "by_status": {"open": 2, "approved": 4, "mitigated": 6},
-  "by_severity": {"critical": 3, "high": 4, "medium": 3, "low": 2},
-  "approved_incidents": 4,
-  "mitigated_incidents": 6
-}
-```
-
-## Local setup
+## Quick Start
 
 ```bash
-cd /Users/manjeetkumar/Documents/ai-repos/ai-incident-copilot
+git clone https://github.com/manjeetkumar53/ai-incident-copilot.git
+cd ai-incident-copilot
+
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
+
 uvicorn app.main:app --reload
 ```
 
-Swagger UI: http://127.0.0.1:8000/docs
+Open Swagger UI at `http://127.0.0.1:8000/docs`.
 
-## Quick operational flow (curl)
+## Operational Flow
 
-### 1) Ingest
+### 1. Ingest
 
 ```bash
 curl -s -X POST http://127.0.0.1:8000/v1/incidents/ingest \
@@ -237,13 +84,13 @@ curl -s -X POST http://127.0.0.1:8000/v1/incidents/ingest \
   }'
 ```
 
-### 2) Plan
+### 2. Generate Plan
 
 ```bash
 curl -s -X POST http://127.0.0.1:8000/v1/incidents/<INCIDENT_ID>/plan
 ```
 
-### 3) Approve (role required)
+### 3. Approve
 
 ```bash
 curl -s -X POST http://127.0.0.1:8000/v1/incidents/<INCIDENT_ID>/approve \
@@ -252,7 +99,7 @@ curl -s -X POST http://127.0.0.1:8000/v1/incidents/<INCIDENT_ID>/approve \
   -d '{"approved_by":"incident-commander","comment":"Proceed with mitigation"}'
 ```
 
-### 4) Execute (role + policy)
+### 4. Execute
 
 ```bash
 curl -s -X POST http://127.0.0.1:8000/v1/incidents/<INCIDENT_ID>/execute \
@@ -261,33 +108,79 @@ curl -s -X POST http://127.0.0.1:8000/v1/incidents/<INCIDENT_ID>/execute \
   -d '{"executed_by":"incident-commander"}'
 ```
 
-## Testing
+### 5. Review Audit Evidence
 
-Run all tests:
+```bash
+curl -s http://127.0.0.1:8000/v1/incidents/<INCIDENT_ID>/audit-report
+```
+
+## API Surface
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /health` | Service liveness |
+| `POST /v1/incidents/ingest` | Direct incident ingest |
+| `POST /v1/integrations/{source}/ingest` | PagerDuty, Slack, or webhook-style ingest |
+| `POST /v1/incidents/{id}/plan` | Generate deterministic mitigation plan |
+| `POST /v1/incidents/{id}/approve` | Role-gated plan approval |
+| `POST /v1/incidents/{id}/execute` | Role and policy-gated execution |
+| `GET /v1/incidents/{id}` | Incident detail with plan and timeline |
+| `GET /v1/incidents/{id}/audit-report` | Reviewer-ready incident evidence |
+| `GET /v1/incidents` | Filtered and paginated incident list |
+| `GET /v1/metrics/summary` | Operational metrics summary |
+
+## Security and Control Model
+
+Sensitive endpoints require an `X-Role` header:
+
+| Endpoint | Allowed roles |
+|---|---|
+| `POST /v1/incidents/{id}/approve` | `incident_commander`, `engineering_manager` |
+| `POST /v1/incidents/{id}/execute` | `incident_commander`, `sre_oncall` |
+
+Additional execution policy:
+
+- critical incidents can only be executed by `incident_commander`
+- execution is blocked until a plan exists
+- execution is blocked unless the plan contains a `write_action`
+- execution is blocked unless the incident is already approved
+
+## Data Model
+
+| Entity | Fields |
+|---|---|
+| Incident | `id`, `title`, `service`, `severity`, `source`, `summary`, `status`, timestamps |
+| Plan | `incident_id`, `runbook_id`, `confidence`, `rationale`, `steps[]` |
+| Step | `id`, `description`, `step_type` as `read_only` or `write_action` |
+| Timeline event | `event`, `actor`, `detail`, `created_at` |
+
+## Validation
 
 ```bash
 pytest -q
-```
-
-Current suite validates:
-
-- health endpoint
-- happy-path incident lifecycle
-- execution blocked until approved
-- approval blocked until plan exists
-- forbidden role handling (`403`)
-- critical execution policy enforcement
-- integration ingest endpoint behavior
-- incident list and metrics summary responses
-- audit report generation
-
-Run only workflow tests:
-
-```bash
 pytest -q tests/test_incident_flow.py
 ```
 
-## Repository structure
+The test suite validates:
+
+- health endpoint
+- happy-path lifecycle
+- approval blocked until plan exists
+- execution blocked until approval
+- forbidden role handling
+- critical incident execution policy
+- integration ingest, list, and metrics behavior
+- audit report generation
+
+## Design Decisions
+
+- **Header-based roles:** simple enough for a portfolio MVP while making control boundaries explicit.
+- **SQLite store:** local persistence without external services.
+- **Deterministic planner:** stable tests and predictable behavior under incident workflows.
+- **Audit report endpoint:** evidence is treated as part of the product surface, not an afterthought.
+- **Policy before execution:** write actions are gated by status, role, severity, and plan contents.
+
+## Project Structure
 
 ```text
 ai-incident-copilot/
@@ -300,21 +193,16 @@ ai-incident-copilot/
 │       ├── policy.py
 │       ├── reporting.py
 │       └── store.py
-├── assets/
-│   └── demo/
-│       └── incident-control-loop.svg
+├── assets/demo/
 ├── tests/
-│   ├── conftest.py
-│   ├── test_health.py
-│   └── test_incident_flow.py
 ├── requirements.txt
 └── README.md
 ```
 
-## Next steps for enterprise hardening
+## Production Hardening Backlog
 
-- Replace header-based role checks with signed identity/JWT claims
-- Migrate to Postgres + migration tooling (Alembic)
-- Add async job worker for execution steps
-- Add real integrations for PagerDuty/Slack APIs
-- Add immutable audit log export and incident analytics dashboard
+- Replace header-based roles with signed identity or JWT claims
+- Move persistence to Postgres with migration tooling
+- Execute write actions through an async job worker
+- Add real PagerDuty, Slack, and deployment integrations
+- Add immutable audit export and incident analytics dashboard
